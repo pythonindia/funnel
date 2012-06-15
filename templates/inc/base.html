@@ -1,0 +1,55 @@
+{% extends "baseframe.html" %}
+
+{% block headerbox -%}
+    {{ networkbar(siteid=config['SITE_ID'], login=config['LASTUSER_CLIENT_ID'] and true or false) }}
+    <header>
+      <div id="logo"><a href="{{ url_for('index')|e }}">Home</a></div>
+      <ul class="usertools">
+        {% if g.user -%}
+          <li class="profile"><a href="{{ config['LASTUSER_SERVER'] }}profile">{{ g.user.fullname }}</a></li>
+          <li><a href="{{ url_for('logout') }}">Logout</a></li>
+        {% else %}
+          <li><a href="{{ url_for('login') }}">Login with Twitter or Google</a></li>
+        {% endif %}      
+      </ul>
+      {% block header %}{% endblock %}
+      </header>
+{%- endblock %}
+
+{% block main %}
+<div class="container" id="main">
+{%- if breadcrumbs %}
+  <ul class="breadcrumbs">
+    <li class="home"><a href="{{ url_for('index') }}">Home</a></li>
+    {% for url, title in breadcrumbs -%}
+      <li><a href="{{ url }}">{{ title }}</a></li>
+    {% endfor -%}
+  </ul>
+{% endif -%}
+{%- block messages %}{{ flash_messages() }}{% endblock %}
+{%- block heading %}{% endblock %}
+{% block basecontent %}
+  {% block content %}{% endblock %}
+{% endblock %}
+</div>
+{% endblock %}
+
+{% block basefooter %}
+  <footer>
+    <div id="footer_content">
+      {% block footer %}
+      <p>
+        Copyright &copy; 2010-12 HasGeek Media LLP and contributors. All content is licensed under
+        <a href="http://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>.
+      </p>
+      {% endblock %}
+    </div>
+  </footer>
+{% endblock %}
+
+{% block footerscripts %}
+  <!--[if lt IE 7 ]>
+    <script src="{{ url_for('static', filename='js/libs/dd_belatedpng.js') }}"></script>
+    <script> DD_belatedPNG.fix('img, .png_bg'); </script>
+  <![endif]-->
+{% endblock %}
