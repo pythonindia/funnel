@@ -2,6 +2,8 @@
 
 #: The title of this site
 SITE_TITLE='HasGeek Funnel'
+# SITE_ID for networkbar
+SITE_ID = ''
 #: Support contact email
 SITE_SUPPORT_EMAIL = 'test@example.com'
 #: TypeKit code for fonts

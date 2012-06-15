@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import logging
-from flaskext.assets import Environment, Bundle
+from flask.ext.assets import Environment, Bundle
+from baseframe import baseframe, baseframe_js, baseframe_css
 
 from app import app
 app.config.from_object(__name__)
@@ -15,16 +16,18 @@ except ImportError:
 
 
 # --- Assets ------------------------------------------------------------------
+app.register_blueprint(baseframe)
 
 assets = Environment(app)
-js = Bundle('js/libs/jquery-1.5.1.min.js',
-            'js/libs/jquery.form.js',
+js = Bundle(baseframe_js, 'js/libs/jquery-1.5.1.min.js',
             'js/libs/jquery.oembed.js',
             'js/libs/jquery.tablesorter.min.js',
             'js/scripts.js',
             filters='jsmin', output='js/packed.js')
+css = Bundle(baseframe_css, 'css/print.css', 'css/screen.css')
 
 assets.register('js_all', js)
+assets.register('css_all', css)
 
 # --- Import rest of the app --------------------------------------------------
 
