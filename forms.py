@@ -70,11 +70,11 @@ class ProposalForm(wtf.Form):
     slides = wtf.html5.URLField('Slides', validators=[wtf.Optional(), wtf.URL()],
         description="Link to your slides. These can be just an outline initially. "\
             "If you provide a Slideshare link, we'll embed slides in the page")
-    #links = wtf.TextAreaField('Links',
-    #    description="Other links, one per line. Provide links to your profile and "\
-    #        "slides and videos from your previous sessions; anything that'll help "\
-    #        "folks decide if they want to attend your session")
-    links = wtf.HiddenField('links', default='')
+    links = wtf.TextAreaField('Links',
+        description="Other links, one per line. Provide links to your profile and "\
+            "slides and videos from your previous sessions; anything that'll help "\
+            "folks decide if they want to attend your session")
+    #links = wtf.HiddenField('links', default='')
     bio = wtf.TextAreaField('Speaker bio', validators=[wtf.Required()],
         description="A brief outline of who you are and how you are qualified to be "\
             "taking this session")
