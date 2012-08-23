@@ -371,7 +371,7 @@ def send_comment_mail(proposal, comment):
         "A new comment has been posted on the proposal:\n" + 
         "%s\n" % url +
         "\n" + 
-        comment.message +
+        comment.message.strip() +
         "\n" + 
         "-- " + comment.user.fullname + "\n" +
         "\n" +
