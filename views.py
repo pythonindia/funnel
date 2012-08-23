@@ -218,6 +218,7 @@ def editsession(name, slug):
     form.section.query = ProposalSpaceSection.query.filter_by(proposal_space=space, public=True).order_by('title')
     if request.method == 'GET':
         form.email.data = proposal.email
+        form.phone.data = proposal.phone
         form.title.data = proposal.title
         form.section.data = proposal.section
         form.objective.data = proposal.objective
