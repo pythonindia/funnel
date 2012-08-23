@@ -364,7 +364,8 @@ def send_comment_mail(proposal, comment):
     from_address = app.config.get("FUNNEL_FROM_ADDRESS")
     to = [proposal.email]
     cc = app.config.get("FUNNEL_ADMINS", [])
-    url = request.url_root + proposal.urlname
+    #url = request.url_root + proposal.propsal_space.name + '/' + proposal.urlname
+    url = url_for("viewsession", name=proposal.proposal_space.name, slug=proposal.urlname, _external=True)
     subject = "New Comment - %s" % proposal.title
     content = ("" + 
         "Hello,\n\n" + 
