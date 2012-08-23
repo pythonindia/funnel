@@ -37,7 +37,7 @@ class ProposalForm(wtf.Form):
     email = wtf.html5.EmailField('Your email address', validators=[wtf.Required()],
         description="An email address we can contact you at. "\
             "Not displayed anywhere")
-    website = wtf.TextField('Your phone number', validators=[wtf.Required()],
+    phone = wtf.TextField('Your phone number', validators=[wtf.Required()],
         description="A phone number we can contact you at. "\
             "Not displayed anywhere")
 
