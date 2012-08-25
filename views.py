@@ -125,12 +125,18 @@ def viewspace_json(name):
             'proposer': proposal.user.fullname,
             'speaker': proposal.speaker.fullname if proposal.speaker else '(open)',
             'email': proposal.email if g.lastuserinfo and 'siteadmin' in g.lastuserinfo.permissions else None,
+            'phone': proposal.phone if g.lastuserinfo and 'siteadmin' in g.lastuserinfo.permissions else None,
             'section': proposal.section.title,
             'type': proposal.session_type,
             'level': proposal.technical_level,
             'votes': proposal.votes.count,
             'comments': proposal.comments.count,
             'submitted': proposal.created_at.isoformat(),
+            'objective': proposal.objective,
+            'description': proposal.description,
+            'slides': proposal.slides,
+            'links': proposal.links,
+            'bio': proposal.bio,
             } for proposal in proposals]
         })
 
