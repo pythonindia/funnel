@@ -1,5 +1,5 @@
 {% extends "inc/layout.html" %}
-{% from "inc/forms.html" import renderform, ajaxform %}
+{% from "inc/forms.html" import renderfield %}
 {% from "inc/comments.html" import commenttree %}
 {% block title %}{{ proposal.title }} &mdash; {{ space.title }}{% endblock %}
 {% block heading %}{# Inhibit display of page-level title #}{% endblock %}
@@ -111,9 +111,9 @@
     {% if proposal.links %}
       <h2 id="links">Links</h2>
       <ul>
-        {% for link in proposal.links.split('\n') -%}
-          <li><a href="{{ link.strip() }}">{{ link.strip() }}</a></li>
-        {% endfor -%}
+        {% for link in links -%}
+          <li>{{ link }}</li>
+        {% endfor %}
       </ul>
     {% endif %}
   </div>
@@ -140,7 +140,7 @@
           {{ commentform.edit_id() }}
         </div>
         <p>
-          {{ commentform.message() }}
+          {{ renderfield(commentform.message) }}
         </p>
         <p>
           <input id="comment-submit" type="submit" value="Post comment"/>

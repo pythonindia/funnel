@@ -254,6 +254,7 @@ class Proposal(BaseMixin, db.Model):
         backref=db.backref('speaker_at', cascade="all"))
 
     email = db.Column(db.Unicode(80), nullable=True)
+    phone = db.Column(db.Unicode(80), nullable=True)
     bio = db.Column(db.Text, nullable=True)
     bio_html = db.Column(db.Text, nullable=True)
 
@@ -277,6 +278,7 @@ class Proposal(BaseMixin, db.Model):
     links = db.Column(db.Text, default=u'', nullable=False)
     tags = db.relationship(Tag, secondary=proposal_tags)
     status = db.Column(db.Integer, default=0, nullable=False)
+    confirmed = db.Column(db.Boolean, default=False, nullable=False)
 
     votes_id = db.Column(db.Integer, db.ForeignKey('votespace.id'), nullable=False)
     votes = db.relationship(VoteSpace, uselist=False)
