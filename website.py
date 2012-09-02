@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import logging
-from flaskext.assets import Environment, Bundle
+from flask.ext.assets import Environment, Bundle
 
 from app import app
 app.config.from_object(__name__)
@@ -21,6 +21,7 @@ js = Bundle('js/libs/jquery-1.5.1.min.js',
             'js/libs/jquery.form.js',
             'js/libs/jquery.oembed.js',
             'js/libs/jquery.tablesorter.min.js',
+            'js/libs/showdown.js',
             'js/scripts.js',
             filters='jsmin', output='js/packed.js')
 

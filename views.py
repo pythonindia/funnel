@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from markdown import Markdown
 
-from flask import render_template, redirect, request, g, url_for, Markup, abort, flash
+from flask import render_template, redirect, request, g, url_for, Markup, abort, flash, escape
 from flask.ext.lastuser import LastUser
 from flask.ext.lastuser.sqlalchemy import UserManager
 from coaster.views import get_next_url, jsonp
@@ -22,6 +22,10 @@ lastuser.init_usermanager(UserManager(db, User))
 markdown = Markdown(safe_mode="escape").convert
 
 jsoncallback_re = re.compile(r'^[a-z$_][0-9a-z$_]*$', re.I)
+
+# From http://daringfireball.net/2010/07/improved_regex_for_matching_urls
+url_re = re.compile(ur'''(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'".,<>?«»“”‘’]))''')
+
 
 # --- Routes ------------------------------------------------------------------
 
@@ -82,6 +86,7 @@ def account():
 @lastuser.requires_permission('siteadmin')
 def newspace():
     form = ProposalSpaceForm()
+    form.description.flags.markdown = True
     if form.validate_on_submit():
         space = ProposalSpace(user=g.user)
         form.populate_obj(space)
@@ -123,9 +128,9 @@ def viewspace_json(name):
             'title': proposal.title,
             'url': url_for('viewsession', name=space.name, slug=proposal.urlname, _external=True),
             'proposer': proposal.user.fullname,
-            'speaker': proposal.speaker.fullname if proposal.speaker else '(open)',
-            'email': proposal.email if g.lastuserinfo and 'siteadmin' in g.lastuserinfo.permissions else None,
-            'phone': proposal.phone if g.lastuserinfo and 'siteadmin' in g.lastuserinfo.permissions else None,
+            'speaker': proposal.speaker.fullname if proposal.speaker else None,
+            'email': proposal.email if lastuser.has_permission('siteadmin') else None,
+            'phone': proposal.phone if lastuser.has_permission('siteadmin') else None,
             'section': proposal.section.title,
             'type': proposal.session_type,
             'level': proposal.technical_level,
@@ -137,6 +142,7 @@ def viewspace_json(name):
             'slides': proposal.slides,
             'links': proposal.links,
             'bio': proposal.bio,
+            'confirmed': proposal.confirmed,
             } for proposal in proposals]
         })
 
@@ -148,6 +154,7 @@ def editspace(name):
     if not space:
         abort(404)
     form = ProposalSpaceForm(obj=space)
+    form.description.flags.markdown = True
     if form.validate_on_submit():
         form.populate_obj(space)
         space.description_html = markdown(space.description)
@@ -183,6 +190,11 @@ def newsession(name):
     if space.status != SPACESTATUS.SUBMISSIONS:
         abort(403)
     form = ProposalForm()
+    # Set markdown flag to True for fields that need markdown conversion
+    markdown_attrs = ('description', 'objective', 'requirements', 'bio')
+    for name in markdown_attrs:
+        attr = getattr(form, name)
+        attr.flags.markdown = True
     form.section.query = ProposalSpaceSection.query.filter_by(proposal_space=space, public=True).order_by('title')
     if request.method == 'GET':
         form.email.data = g.user.email
@@ -195,10 +207,11 @@ def newsession(name):
         proposal.votes.vote(g.user)  # Vote up your own proposal by default
         form.populate_obj(proposal)
         proposal.name = makename(proposal.title)
-        proposal.objective_html = markdown(proposal.objective)
-        proposal.description_html = markdown(proposal.description)
-        proposal.requirements_html = markdown(proposal.requirements)
-        proposal.bio_html = markdown(proposal.bio)
+        # Set *_html attributes after converting markdown text
+        for name in markdown_attrs:
+            attr = getattr(proposal, name)
+            html_attr = name + '_html'
+            setattr(proposal, html_attr, markdown(attr))
         db.session.add(proposal)
         db.session.commit()
         flash("Your new session has been saved", "info")
@@ -221,8 +234,13 @@ def editsession(name, slug):
         abort(404)
     if proposal.user != g.user:
         abort(403)
-    form = ProposalForm()
+    form = ProposalForm(obj=proposal)
     form.section.query = ProposalSpaceSection.query.filter_by(proposal_space=space, public=True).order_by('title')
+    # Set markdown flag to True for fields that need markdown conversion
+    markdown_attrs = ('description', 'objective', 'requirements', 'bio')
+    for name in markdown_attrs:
+        attr = getattr(form, name)
+        attr.flags.markdown = True
     if request.method == 'GET':
         form.email.data = proposal.email
         form.phone.data = proposal.phone
@@ -245,10 +263,11 @@ def editsession(name, slug):
         else:
             if proposal.speaker == g.user:
                 proposal.speaker = None
-        proposal.objective_html = markdown(proposal.objective)
-        proposal.description_html = markdown(proposal.description)
-        proposal.requirements_html = markdown(proposal.requirements)
-        proposal.bio_html = markdown(proposal.bio)
+        # Set *_html attributes after converting markdown text
+        for name in markdown_attrs:
+            attr = getattr(proposal, name)
+            html_attr = name + '_html'
+            setattr(proposal, html_attr, markdown(attr))
         proposal.edited_at = datetime.utcnow()
         db.session.commit()
         flash("Your changes have been saved", "info")
@@ -270,7 +289,7 @@ def deletesession(name, slug):
     proposal = Proposal.query.get(proposal_id)
     if not proposal:
         abort(404)
-    if proposal.user != g.user:
+    if not lastuser.has_permission('siteadmin') and proposal.user != g.user:
         abort(403)
     form = ConfirmDeleteForm()
     if form.validate_on_submit():
@@ -295,6 +314,13 @@ def deletesession(name, slug):
                 u"is permanent and cannot be undone." % proposal.title)
 
 
+def urllink(m):
+    s = m.group(0)
+    if not (s.startswith('http://') or s.startswith('https://')):
+        s = 'http://' + s
+    return '<a href="%s" rel="nofollow" target="_blank">%s</a>' % (s, s)
+
+
 @app.route('/<name>/<slug>', methods=['GET', 'POST'])
 def viewsession(name, slug):
     space = ProposalSpace.query.filter_by(name=name).first()
@@ -315,6 +341,7 @@ def viewsession(name, slug):
     comments = sorted(Comment.query.filter_by(commentspace=proposal.comments, parent=None).order_by('created_at').all(),
         key=lambda c: c.votes.count, reverse=True)
     commentform = CommentForm()
+    commentform.message.flags.markdown = True
     delcommentform = DeleteCommentForm()
     if request.method == 'POST':
         if request.form.get('form.id') == 'newcomment' and commentform.validate():
@@ -361,9 +388,11 @@ def viewsession(name, slug):
             else:
                 flash("No such comment.", "error")
             return redirect(url_for('viewsession', name=space.name, slug=proposal.urlname), code=303)
+    links = [Markup(url_re.sub(urllink, unicode(escape(l)))) for l in proposal.links.replace('\r\n', '\n').split('\n') if l]
     return render_template('proposal.html', space=space, proposal=proposal,
         comments=comments, commentform=commentform, delcommentform=delcommentform,
-        breadcrumbs=[(url_for('viewspace', name=space.name), space.title)])
+        breadcrumbs=[(url_for('viewspace', name=space.name), space.title)],
+        links=links)
 
 def send_comment_mail(proposal, comment):
     # send email to the speaker and admins when a new comment is posted
