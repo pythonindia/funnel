@@ -2,37 +2,67 @@
 
 import re
 from datetime import datetime
-from markdown import Markdown
+import unicodecsv
+from cStringIO import StringIO
 
-from flask import render_template, redirect, request, g, url_for, Markup, abort, flash, escape
-from flask.ext.lastuser import LastUser
-from flask.ext.lastuser.sqlalchemy import UserManager
+from flask import (
+    render_template,
+    redirect,
+    request,
+    g,
+    url_for,
+    Markup,
+    abort,
+    flash,
+    escape,
+    Response)
+from flask.ext.mail import Message
 from coaster.views import get_next_url, jsonp
+from coaster.gfm import markdown
 
 from app import app
+from website import mail, lastuser
 from models import *
-from forms import ProposalSpaceForm, SectionForm, ProposalForm, CommentForm, DeleteCommentForm, ConfirmDeleteForm
+from forms import (
+    ProposalSpaceForm,
+    SectionForm,
+    UserGroupForm,
+    ProposalForm,
+    CommentForm,
+    DeleteCommentForm,
+    ConfirmDeleteForm,
+    ConfirmSessionForm)
 from utils import makename
 import sendmail
-
-lastuser = LastUser(app)
-lastuser.init_usermanager(UserManager(db, User))
-#lastuser.external_resource('email', 'http://iddev.hasgeek.in:7000/api/1/email', 'GET')
-
-markdown = Markdown(safe_mode="escape").convert
 
 jsoncallback_re = re.compile(r'^[a-z$_][0-9a-z$_]*$', re.I)
 
 # From http://daringfireball.net/2010/07/improved_regex_for_matching_urls
 url_re = re.compile(ur'''(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'".,<>?«»“”‘’]))''')
 
+proposal_headers = [
+    'id',
+    'title',
+    'url',
+    'proposer',
+    'speaker',
+    'email',
+    'phone',
+    'section',
+    'type',
+    'level',
+    'votes',
+    'comments',
+    'submitted',
+    'confirmed'
+    ]
 
 # --- Routes ------------------------------------------------------------------
 
 
 @app.route('/')
 def index():
-    spaces = ProposalSpace.query.filter(ProposalSpace.status >= 1).filter(ProposalSpace.status <= 4).order_by('date').all()
+    spaces = ProposalSpace.query.filter(ProposalSpace.status >= 1).filter(ProposalSpace.status <= 4).order_by(ProposalSpace.date.desc()).all()
     return render_template('index.html', spaces=spaces)
 
 
@@ -60,6 +90,13 @@ def lastuserauth():
     # Save the user object
     db.session.commit()
     return redirect(get_next_url())
+
+
+@app.route('/login/notify', methods=['POST'])
+@lastuser.notification_handler
+def lastusernotify(user):
+    # Save the user object
+    db.session.commit()
 
 
 @lastuser.auth_error_handler
@@ -101,12 +138,19 @@ def newspace():
 @app.route('/<name>/')
 def viewspace(name):
     space = ProposalSpace.query.filter_by(name=name).first()
+    proposal_filters = {'proposal_space': space}
+    if 'section' in request.args:
+        section = ProposalSpaceSection.query.filter_by(proposal_space=space, name=request.args['section']).first()
+        if section:
+            proposal_filters['section'] = section
     if not space:
         abort(404)
     description = Markup(space.description_html)
     sections = ProposalSpaceSection.query.filter_by(proposal_space=space).order_by('title').all()
-    proposals = Proposal.query.filter_by(proposal_space=space).order_by(db.desc('created_at')).all()
-    return render_template('space.html', space=space, description=description, sections=sections, proposals=proposals)
+    confirmed = Proposal.query.filter_by(confirmed=True, **proposal_filters).order_by(db.desc('created_at')).all()
+    unconfirmed = Proposal.query.filter_by(confirmed=False, **proposal_filters).order_by(db.desc('created_at')).all()
+    return render_template('space.html', space=space, description=description, sections=sections,
+        confirmed=confirmed, unconfirmed=unconfirmed)
 
 
 @app.route('/<name>/json')
@@ -122,24 +166,25 @@ def viewspace_json(name):
             'status': space.status,
             },
         'sections': [{'name': s.name, 'title': s.title, 'description': s.description} for s in sections],
-        'proposals': [{
-            'id': proposal.id,
-            'name': proposal.urlname,
-            'title': proposal.title,
-            'url': url_for('viewsession', name=space.name, slug=proposal.urlname, _external=True),
-            'proposer': proposal.user.fullname,
-            'speaker': proposal.speaker.fullname if proposal.speaker else None,
-            'email': proposal.email if lastuser.has_permission('siteadmin') else None,
-            'phone': proposal.phone if lastuser.has_permission('siteadmin') else None,
-            'section': proposal.section.title,
-            'type': proposal.session_type,
-            'level': proposal.technical_level,
-            'votes': proposal.votes.count,
-            'comments': proposal.comments.count,
-            'submitted': proposal.created_at.isoformat(),
-            'confirmed': proposal.confirmed,
-            } for proposal in proposals]
+        'proposals': [proposal_data(proposal) for proposal in proposals]
         })
+
+
+@app.route('/<name>/csv')
+def viewspace_csv(name):
+    space = ProposalSpace.query.filter_by(name=name).first_or_404()
+    if lastuser.has_permission('siteadmin'):
+        usergroups = [g.name for g in space.usergroups]
+    else:
+        usergroups = []
+    proposals = Proposal.query.filter_by(proposal_space=space).order_by(db.desc('created_at')).all()
+    outfile = StringIO()
+    out = unicodecsv.writer(outfile, encoding='utf-8')
+    out.writerow(proposal_headers + ['votes_' + group for group in usergroups])
+    for proposal in proposals:
+        out.writerow(proposal_data_flat(proposal, usergroups))
+    outfile.seek(0)
+    return Response(unicode(outfile.getvalue(), 'utf-8'), mimetype='text/plain')
 
 
 @app.route('/<name>/edit', methods=['GET', 'POST'])
@@ -176,6 +221,75 @@ def newsection(name):
     return render_template('autoform.html', form=form, title="New section", submit="Create section")
 
 
+@app.route('/<name>/users')
+@lastuser.requires_permission('siteadmin')
+def usergroup_list(name):
+    space = ProposalSpace.query.filter_by(name=name).first_or_404()
+    return render_template('usergroups.html', space=space, usergroups=space.usergroups)
+
+
+@app.route('/<name>/users/<group>')
+@lastuser.requires_permission('siteadmin')
+def usergroup_view(name, group):
+    space = ProposalSpace.query.filter_by(name=name).first_or_404()
+    usergroup = UserGroup.query.filter_by(name=group, proposal_space=space).first_or_404()
+    return render_template('usergroup.html', space=space, usergroup=usergroup)
+
+
+@app.route('/<name>/users/new', defaults={'group': None}, endpoint='usergroup_new', methods=['GET', 'POST'])
+@app.route('/<name>/users/<group>/edit', methods=['GET', 'POST'])
+@lastuser.requires_permission('siteadmin')
+def usergroup_edit(name, group):
+    space = ProposalSpace.query.filter_by(name=name).first_or_404()
+    form = UserGroupForm()
+    if group is not None:
+        usergroup = UserGroup.query.filter_by(name=group, proposal_space=space).first_or_404()
+        if request.method == 'GET':
+            form.name.data = usergroup.name
+            form.title.data = usergroup.title
+            form.users.data = '\r\n'.join([u.email or u.username or '' for u in usergroup.users])
+    if form.validate_on_submit():
+        if group is None:
+            usergroup = UserGroup(proposal_space=space)
+        usergroup.name = form.name.data
+        usergroup.title = form.title.data
+        formdata = [line.strip() for line in
+            form.users.data.replace('\r', '\n').replace(',', '\n').split('\n') if line]
+        usersdata = lastuser.getusers(names=formdata)
+        users = []
+        for userdata in usersdata:
+            user = User.query.filter_by(userid=userdata['userid']).first()
+            if user is None:
+                user = User(userid=userdata['userid'], username=userdata['name'], fullname=userdata['title'])
+                db.session.add(user)
+            users.append(user)
+        usergroup.users = users
+        db.session.commit()
+        return redirect(url_for('usergroup_view', name=space.name, group=usergroup.name), code=303)
+    if group is None:
+        return render_template('autoform.html', form=form, title="New user group", submit="Create")
+    else:
+        return render_template('autoform.html', form=form, title="Edit user group", submit="Save")
+
+
+@app.route('/<name>/users/<group>/delete', methods=['GET', 'POST'])
+@lastuser.requires_permission('siteadmin')
+def usergroup_delete(name, group):
+    space = ProposalSpace.query.filter_by(name=name).first_or_404()
+    usergroup = UserGroup.query.filter_by(name=group, proposal_space=space).first_or_404()
+    form = ConfirmDeleteForm()
+    if form.validate_on_submit():
+        if 'delete' in request.form:
+            db.session.delete(usergroup)
+            db.session.commit()
+            flash("Your user group has been deleted", "info")
+            return redirect(url_for('usergroup_list', name=name))
+        else:
+            return redirect(url_for('usergroup_view', name=name, group=group))
+    return render_template('delete.html', form=form, title=u"Confirm delete",
+        message=u"Do you really wish to delete user group '%s'?" % usergroup.title)
+
+
 @app.route('/<name>/new', methods=['GET', 'POST'])
 @lastuser.requires_login
 def newsession(name):
@@ -185,12 +299,16 @@ def newsession(name):
     if space.status != SPACESTATUS.SUBMISSIONS:
         abort(403)
     form = ProposalForm()
+    del form.session_type  # We don't use this anymore
     # Set markdown flag to True for fields that need markdown conversion
     markdown_attrs = ('description', 'objective', 'requirements', 'bio')
     for name in markdown_attrs:
         attr = getattr(form, name)
         attr.flags.markdown = True
     form.section.query = ProposalSpaceSection.query.filter_by(proposal_space=space, public=True).order_by('title')
+    if len(list(form.section.query.all())) == 0:
+        # Don't bother with sections when there aren't any
+        del form.section
     if request.method == 'GET':
         form.email.data = g.user.email
     if form.validate_on_submit():
@@ -227,25 +345,34 @@ def editsession(name, slug):
     proposal = Proposal.query.get(proposal_id)
     if not proposal:
         abort(404)
-    if proposal.user != g.user:
+    if proposal.user != g.user and not lastuser.has_permission('siteadmin'):
         abort(403)
     form = ProposalForm(obj=proposal)
+    if not proposal.session_type:
+        del form.session_type  # Remove this if we're editing a proposal that had no session type
     form.section.query = ProposalSpaceSection.query.filter_by(proposal_space=space, public=True).order_by('title')
+    if len(list(form.section.query.all())) == 0:
+        # Don't bother with sections when there aren't any
+        del form.section
     # Set markdown flag to True for fields that need markdown conversion
     markdown_attrs = ('description', 'objective', 'requirements', 'bio')
     for name in markdown_attrs:
         attr = getattr(form, name)
         attr.flags.markdown = True
-    if request.method == 'GET':
+    if proposal.user != g.user:
+        del form.speaking
+    elif request.method == 'GET':
         form.speaking.data = proposal.speaker == g.user
     if form.validate_on_submit():
         form.populate_obj(proposal)
         proposal.name = makename(proposal.title)
-        if form.speaking.data:
-            proposal.speaker = g.user
-        else:
-            if proposal.speaker == g.user:
-                proposal.speaker = None
+        if proposal.user == g.user:
+            # Only allow the speaker to change this status
+            if form.speaking.data:
+                proposal.speaker = g.user
+            else:
+                if proposal.speaker == g.user:
+                    proposal.speaker = None
         # Set *_html attributes after converting markdown text
         for name in markdown_attrs:
             attr = getattr(proposal, name)
@@ -262,7 +389,26 @@ def editsession(name, slug):
             'This form uses <a href="http://daringfireball.net/projects/markdown/">Markdown</a> for formatting.'))
 
 
-@app.route('/<name>/<slug>/delete', methods=['GET', 'POST'])
+@app.route('/<name>/<slug>/confirm', methods=['POST'])
+@lastuser.requires_permission('siteadmin')
+def confirmsession(name, slug):
+    ProposalSpace.query.filter_by(name=name).first_or_404()
+    proposal_id = int(slug.split('-')[0])
+    proposal = Proposal.query.get(proposal_id)
+    if not proposal:
+        abort(404)
+    form = ConfirmSessionForm()
+    if form.validate_on_submit():
+        proposal.confirmed = not proposal.confirmed
+        db.session.commit()
+        if proposal.confirmed:
+            flash("This proposal has been confirmed.", 'success')
+        else:
+            flash("This session has been cancelled.", 'success')
+    return redirect(url_for('viewsession', name=name, slug=slug))
+
+
+@app.route('/<name>/<slug>/__delete', methods=['GET', 'POST'])
 @lastuser.requires_login
 def deletesession(name, slug):
     space = ProposalSpace.query.filter_by(name=name).first()
@@ -304,6 +450,13 @@ def urllink(m):
     return '<a href="%s" rel="nofollow" target="_blank">%s</a>' % (s, s)
 
 
+def send_mail(sender, to, body, subject):
+    msg = Message(sender=sender, subject=subject, recipients=[to])
+    msg.body = body
+    msg.html = markdown(msg.body)
+    mail.send(msg)
+
+
 @app.route('/<name>/<slug>', methods=['GET', 'POST'])
 def viewsession(name, slug):
     space = ProposalSpace.query.filter_by(name=name).first()
@@ -328,6 +481,7 @@ def viewsession(name, slug):
     delcommentform = DeleteCommentForm()
     if request.method == 'POST':
         if request.form.get('form.id') == 'newcomment' and commentform.validate():
+            send_mail_info = []
             if commentform.edit_id.data:
                 comment = Comment.query.get(int(commentform.edit_id.data))
                 if comment:
@@ -341,11 +495,33 @@ def viewsession(name, slug):
                 else:
                     flash("No such comment", "error")
             else:
-                comment = Comment(user=g.user, commentspace=proposal.comments, message=commentform.message.data)
+                comment = Comment(user=g.user, commentspace=proposal.comments,
+                    message=commentform.message.data)
                 if commentform.parent_id.data:
                     parent = Comment.query.get(int(commentform.parent_id.data))
+                    if parent.user.email:
+                        if parent.user == proposal.user:  # check if parent comment & proposal owner are same
+                            if not g.user == parent.user:  # check if parent comment is by proposal owner
+                                send_mail_info.append({'to': proposal.user.email or proposal.email,
+                                    'subject': "%s Funnel:%s" % (name, proposal.title),
+                                    'template': 'proposal_comment_reply_email.md'})
+                        else:  # send mail to parent comment owner & proposal owner
+                            if not parent.user == g.user:
+                                send_mail_info.append({'to': parent.user.email,
+                                    'subject': "%s Funnel:%s" % (name, proposal.title),
+                                    'template': 'proposal_comment_to_proposer_email.md'})
+                            if not proposal.user == g.user:
+                                send_mail_info.append({'to': proposal.user.email or proposal.email,
+                                    'subject': "%s Funnel:%s" % (name, proposal.title),
+                                    'template': 'proposal_comment_email.md'})
+
                     if parent and parent.commentspace == proposal.comments:
                         comment.parent = parent
+                else:  # for top level comment
+                    if not proposal.user == g.user:
+                        send_mail_info.append({'to': proposal.user.email or proposal.email,
+                            'subject': "%s Funnel:%s" % (name, proposal.title),
+                            'template': 'proposal_comment_email.md'})
                 comment.message_html = markdown(comment.message)
                 proposal.comments.count += 1
                 comment.votes.vote(g.user)  # Vote for your own comment
@@ -354,10 +530,14 @@ def viewsession(name, slug):
                 send_comment_mail(proposal, comment)
 
             db.session.commit()
+            to_redirect = url_for('viewsession', name=space.name,
+                    slug=proposal.urlname, _external=True) + "#c" + str(comment.id)
+            for item in send_mail_info:
+                email_body = render_template(item.pop('template'), proposal=proposal, comment=comment, link=to_redirect)
+                send_mail(sender=None, body=email_body, **item)
             # Redirect despite this being the same page because HTTP 303 is required to not break
             # the browser Back button
-            return redirect(url_for('viewsession', name=space.name, slug=proposal.urlname) + "#c" + str(comment.id),
-                code=303)
+            return redirect(to_redirect, code=303)
         elif request.form.get('form.id') == 'delcomment' and delcommentform.validate():
             comment = Comment.query.get(int(delcommentform.comment_id.data))
             if comment:
@@ -372,10 +552,79 @@ def viewsession(name, slug):
                 flash("No such comment.", "error")
             return redirect(url_for('viewsession', name=space.name, slug=proposal.urlname), code=303)
     links = [Markup(url_re.sub(urllink, unicode(escape(l)))) for l in proposal.links.replace('\r\n', '\n').split('\n') if l]
+    confirmform = ConfirmSessionForm()
     return render_template('proposal.html', space=space, proposal=proposal,
         comments=comments, commentform=commentform, delcommentform=delcommentform,
         breadcrumbs=[(url_for('viewspace', name=space.name), space.title)],
-        links=links)
+        links=links, confirmform=confirmform)
+
+
+def proposal_data(proposal):
+    """
+    Return proposal data suitable for a JSON dump. Request helper, not to be used standalone.
+    """
+    votes_count = None
+    votes_groups = None
+    if lastuser.has_permission('siteadmin'):
+        votes_count = len(proposal.votes.votes)
+        votes_groups = dict([(g.name, 0) for g in proposal.proposal_space.usergroups])
+        groupuserids = dict([(g.name, [u.userid for u in g.users]) for g in proposal.proposal_space.usergroups])
+        for vote in proposal.votes.votes:
+            for groupname, userids in groupuserids.items():
+                if vote.user.userid in userids:
+                    votes_groups[groupname] += -1 if vote.votedown else +1
+
+    return {'id': proposal.id,
+            'name': proposal.urlname,
+            'title': proposal.title,
+            'url': url_for('viewsession', name=proposal.proposal_space.name, slug=proposal.urlname, _external=True),
+            'proposer': proposal.user.fullname,
+            'speaker': proposal.speaker.fullname if proposal.speaker else None,
+            'email': proposal.email if lastuser.has_permission('siteadmin') else None,
+            'phone': proposal.phone if lastuser.has_permission('siteadmin') else None,
+            'section': proposal.section.title if proposal.section else None,
+            'type': proposal.session_type,
+            'level': proposal.technical_level,
+            'objective': proposal.objective_html,
+            'description': proposal.description_html,
+            'requirements': proposal.requirements_html,
+            'slides': proposal.slides,
+            'links': proposal.links,
+            'bio': proposal.bio_html,
+            'votes': proposal.votes.count,
+            'votes_count': votes_count,
+            'votes_groups': votes_groups,
+            'comments': proposal.comments.count,
+            'submitted': proposal.created_at.isoformat() + 'Z',
+            'confirmed': proposal.confirmed,
+            }
+
+
+def proposal_data_flat(proposal, groups=[]):
+    data = proposal_data(proposal)
+    cols = [data[header] for header in proposal_headers if header != 'votes_groups']
+    for name in groups:
+        cols.append(data['votes_groups'][name])
+    return cols
+
+
+@app.route('/<name>/<slug>/json', methods=['GET', 'POST'])
+def session_json(name, slug):
+    space = ProposalSpace.query.filter_by(name=name).first()
+    if not space:
+        abort(404)
+    try:
+        proposal_id = int(slug.split('-')[0])
+    except ValueError:
+        abort(404)
+    proposal = Proposal.query.get(proposal_id)
+    if not proposal:
+        abort(404)
+    if proposal.proposal_space != space:
+        return redirect(url_for('viewspace', name=space.name))
+    if slug != proposal.urlname:
+        return redirect(url_for('session_json', name=space.name, slug=proposal.urlname))
+    return jsonp(proposal_data(proposal))
 
 def send_comment_mail(proposal, comment):
     # send email to the speaker and admins when a new comment is posted

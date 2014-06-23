@@ -15,11 +15,13 @@ SECRET_KEY = 'make this something random'
 #: Timezone
 TIMEZONE = 'Asia/Calcutta'
 #: LastUser server
-LASTUSER_SERVER = 'https://login.hasgeek.com'
+LASTUSER_SERVER = 'https://auth.hasgeek.com/'
 #: LastUser client id
 LASTUSER_CLIENT_ID = ''
 #: LastUser client secret
 LASTUSER_CLIENT_SECRET = ''
+#: Used for attribution when shared a proposal on twitter
+TWITTER_ID = "hasgeek"
 #: Mail settings
 #: MAIL_FAIL_SILENTLY : default True
 #: MAIL_SERVER : default 'localhost'
@@ -36,3 +38,6 @@ DEFAULT_MAIL_SENDER = ('Bill Gate', 'test@example.com')
 ADMINS=[]
 #: Log file
 LOGFILE='error.log'
+
+#: Messages (text or HTML)
+WELCOME_MESSAGE = "The funnel is a space for proposals and voting on events. Pick an event to get started."
