@@ -137,12 +137,17 @@ def newspace():
 @app.route('/<name>/')
 def viewspace(name):
     space = ProposalSpace.query.filter_by(name=name).first()
+    proposal_filters = {'proposal_space': space}
+    if 'section' in request.args:
+        section = ProposalSpaceSection.query.filter_by(proposal_space=space, name=request.args['section']).first()
+        if section:
+            proposal_filters['section'] = section
     if not space:
         abort(404)
     description = Markup(space.description_html)
     sections = ProposalSpaceSection.query.filter_by(proposal_space=space).order_by('title').all()
-    confirmed = Proposal.query.filter_by(proposal_space=space, confirmed=True).order_by(db.desc('created_at')).all()
-    unconfirmed = Proposal.query.filter_by(proposal_space=space, confirmed=False).order_by(db.desc('created_at')).all()
+    confirmed = Proposal.query.filter_by(confirmed=True, **proposal_filters).order_by(db.desc('created_at')).all()
+    unconfirmed = Proposal.query.filter_by(confirmed=False, **proposal_filters).order_by(db.desc('created_at')).all()
     return render_template('space.html', space=space, description=description, sections=sections,
         confirmed=confirmed, unconfirmed=unconfirmed)
 
@@ -402,7 +407,7 @@ def confirmsession(name, slug):
     return redirect(url_for('viewsession', name=name, slug=slug))
 
 
-@app.route('/<name>/<slug>/delete', methods=['GET', 'POST'])
+@app.route('/<name>/<slug>/__delete', methods=['GET', 'POST'])
 @lastuser.requires_login
 def deletesession(name, slug):
     space = ProposalSpace.query.filter_by(name=name).first()
