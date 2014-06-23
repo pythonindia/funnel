@@ -1439,3 +1439,20 @@ div.markdown-field a.button.selected {
 header #logo {
     display: none;
 }
+
+.listing .voteup {
+    background: #efe;
+}
+
+.listing .voteup tr:nth-of-type(even) {
+    background: #e6f6e6;
+}
+
+
+.listing .votedown {
+    background: #fee;
+}
+
+.listing .votedown tr:nth-of-type(even) {
+    background: #f6e6e6;
+}

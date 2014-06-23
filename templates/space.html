@@ -17,7 +17,16 @@
       </tr>
     </thead>
     {% for proposal in proposals %}
-      <tbody class="link separator">
+      {%- set vote = proposal.votes.getvote(g.user) %}
+      {%- if vote and vote.votedown %}
+        {%- set pclass = "votedown" %}
+      {%- elif vote %}
+        {%- set pclass = "voteup" %}
+      {%- else %}
+        {%- set pclass = "novote" %}
+      {% endif %}
+
+      <tbody class="link separator {{ pclass }}">
         {%- set link=url_for('viewsession', name=space.name, slug=proposal.urlname) -%}
         <tr>
           <td class="num"><a href="{{ link }}">{{ loop.index }}</a></td>
