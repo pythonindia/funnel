@@ -17,6 +17,8 @@ from flask import (
     escape,
     Response)
 from flask.ext.mail import Message
+import flask.ext.wtf as wtf
+
 from coaster.views import get_next_url, jsonp
 from coaster.gfm import markdown
 
@@ -43,12 +45,24 @@ def url_for(endpoint, **kw):
         url += "?section=" + request.args['section']
     return url
 
+def get_section_select(space):
+    sections = ProposalSpaceSection.query.filter_by(proposal_space=space).order_by('title').all()
+    choices = [("", "All")] + [(s.name, s.title) for s in sections]
+    s = wtf.fields.SelectField(_name='section', label='Section', _form=None, choices=choices)
+    if 'section' in request.args:
+        section = request.args['section']
+        s.data = section
+    else:
+        s.data = ""
+    return s
+
 @app.context_processor
 def context():
     """Injects the new url_for into templates.
     """
     return {
-        'url_for': url_for
+        'url_for': url_for,
+        'get_section_select': get_section_select
     }
 
 jsoncallback_re = re.compile(r'^[a-z$_][0-9a-z$_]*$', re.I)

@@ -102,6 +102,10 @@
   <a href="{{ url_for('newsession', name=space.name) }}">Propose a session &rarr;</a>
 </p>
 {% endif %}
+
+<div>
+  Section: {{ get_section_select(space)() }}
+</div>
 {%- if confirmed %}
   <h3>Confirmed sessions</h3>
   {{ proposal_table(confirmed) }}
@@ -111,3 +115,18 @@
   {{ proposal_table(unconfirmed) }}
 {%- endif %}
 {% endblock %}
+
+{% block footerscripts %}
+<script type="text/javascript">
+$(function() {
+  $("#section").change(function() {
+    var val = $("#section").val();
+    if (val == "")
+      document.location.search = "";
+    else
+      document.location.search = "?section=" + val;
+  });
+});
+</script>
+{% endblock %}
+
