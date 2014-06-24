@@ -300,15 +300,21 @@ class Proposal(BaseMixin, db.Model):
     def urlname(self):
         return '%s-%s' % (self.id, self.name)
 
-    def getnext(self):
-        return Proposal.query.filter(Proposal.proposal_space == self.proposal_space).filter(
+    def getnext(self, section=None):
+        q = Proposal.query.filter(Proposal.proposal_space == self.proposal_space).filter(
             Proposal.id != self.id).filter(
-                Proposal.created_at < self.created_at).order_by(db.desc('created_at')).first()
+                Proposal.created_at < self.created_at).order_by(db.desc('created_at'))
+        if section:
+            q = q.filter(Proposal.section == section)
+        return q.first()
 
-    def getprev(self):
-        return Proposal.query.filter(Proposal.proposal_space == self.proposal_space).filter(
+    def getprev(self, section=None):
+        q = Proposal.query.filter(Proposal.proposal_space == self.proposal_space).filter(
             Proposal.id != self.id).filter(
-                Proposal.created_at > self.created_at).order_by('created_at').first()
+                Proposal.created_at > self.created_at).order_by('created_at')
+        if section:
+            q = q.filter(Proposal.section == section)
+        return q.first()
 
 
 group_members = db.Table(

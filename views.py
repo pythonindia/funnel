@@ -10,7 +10,7 @@ from flask import (
     redirect,
     request,
     g,
-    url_for,
+    url_for as _url_for,
     Markup,
     abort,
     flash,
@@ -34,6 +34,22 @@ from forms import (
     ConfirmSessionForm)
 from utils import makename
 import sendmail
+
+def url_for(endpoint, **kw):
+    """Overwriting url_for to retain query parameter section across links and redirects.
+    """
+    url = _url_for(endpoint, **kw)
+    if 'section' in request.args:
+        url += "?section=" + request.args['section']
+    return url
+
+@app.context_processor
+def context():
+    """Injects the new url_for into templates.
+    """
+    return {
+        'url_for': url_for
+    }
 
 jsoncallback_re = re.compile(r'^[a-z$_][0-9a-z$_]*$', re.I)
 
@@ -806,7 +822,12 @@ def nextsession(name, slug):
     if not proposal:
         abort(404)
 
-    next = proposal.getnext()
+    if 'section' in request.args:
+        section = ProposalSpaceSection.query.filter_by(proposal_space=space, name=request.args['section']).first()
+    else:
+        section = None
+
+    next = proposal.getnext(section=section)
     if next:
         return redirect(url_for('viewsession', name=space.name, slug=next.urlname))
     else:
@@ -826,8 +847,11 @@ def prevsession(name, slug):
     proposal = Proposal.query.get(proposal_id)
     if not proposal:
         abort(404)
-
-    prev = proposal.getprev()
+    if 'section' in request.args:
+        section = ProposalSpaceSection.query.filter_by(proposal_space=space, name=request.args['section']).first()
+    else:
+        section = None
+    prev = proposal.getprev(section=section)
     if prev:
         return redirect(url_for('viewsession', name=space.name, slug=prev.urlname))
     else:
